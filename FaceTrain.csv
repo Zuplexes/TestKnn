@@ -1,0 +1,69 @@
+import cv2
+import os
+import numpy as np
+
+# ---------- ตั้งค่า ----------
+DATASET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset")
+BOX = (250, 120, 390, 300)   # x1, y1, x2, y2 (กรอบสีแดงที่ให้หน้าอยู่ในกรอบ)
+
+def main():
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        print("เปิดกล้องไม่ได้")
+        return
+
+    x1, y1, x2, y2 = BOX
+    faces = []   # เก็บภาพไว้ในหน่วยความจำก่อน จนกว่าจะกรอกชื่อ
+
+    print("กด 's' = ถ่ายภาพ | กด 'q' = เสร็จสิ้นและกรอกชื่อ")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("อ่านภาพจากกล้องไม่ได้")
+            break
+
+        face = cv2.cvtColor(frame[y1:y2, x1:x2, :], cv2.COLOR_BGR2GRAY)
+
+        show = frame.copy()
+        cv2.rectangle(show, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cv2.putText(show, f"Captured: {len(faces)}  [s]=shot [q]=finish",
+                    (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.imshow("frame", show)
+        cv2.imshow("face", face)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('s'):
+            faces.append(face.copy())
+            print(f"ถ่ายแล้ว {len(faces)} ภาพ")
+        elif key == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+    # ---------- กรอกชื่อหลังถ่ายเสร็จ ----------
+    if not faces:
+        print("ไม่มีภาพที่ถ่ายไว้ ไม่บันทึกอะไร")
+        return
+
+    name = ""
+    while not name:
+        name = input(f"ถ่ายไว้ {len(faces)} ภาพ — กรุณากรอกชื่อพนักงาน: ").strip()
+        # กันอักขระที่ใช้ตั้งชื่อโฟลเดอร์ไม่ได้
+        name = "".join(c for c in name if c not in '\\/:*?"<>|')
+
+    person_dir = os.path.join(DATASET_DIR, name)
+    os.makedirs(person_dir, exist_ok=True)
+
+    # ถ้ามีภาพเดิมอยู่แล้ว ให้ต่อเลขไฟล์ต่อจากเดิม
+    i = len([f for f in os.listdir(person_dir) if f.endswith(".jpg")]) + 1
+    for face in faces:
+        path = os.path.join(person_dir, f"{i}.jpg")
+        ok, buf = cv2.imencode(".jpg", face)
+        if ok:
+            buf.tofile(path)   # ใช้ tofile เพื่อรองรับพาธภาษาไทยบน Windows
+            i += 1
+    print(f"บันทึก {len(faces)} ภาพของ '{name}' ที่ {person_dir} เรียบร้อย")
+
+if __name__ == "__main__":
+    main()
