@@ -1,0 +1,91 @@
+import cv2
+import os
+import numpy as np
+
+# ---------- ตั้งค่า ----------
+DATASET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset")
+BOX = (250, 120, 390, 300)   # ต้องเหมือนกับใน FaceTrain.py
+K = 3                        # จำนวนเพื่อนบ้านของ KNN
+UNKNOWN_THRESHOLD = 3000.0   # ระยะ (RMS) ของเพื่อนบ้านที่ใกล้สุดที่มากกว่านี้ = Unknown (ปรับตามหน้างาน)
+SHOW_DISTANCE = True         # แสดงค่าระยะบนจอ ไว้ช่วยปรับ threshold
+
+
+def knn(X, y, z, k=1):
+    """คืนค่า (คลาสที่โหวตมากสุด, ระยะของเพื่อนบ้านที่ใกล้ที่สุด)"""
+    d = np.sqrt(np.sum((X - z) ** 2, axis=1))
+    k = min(k, len(d))
+    idx = np.argsort(d)[:k]
+    cls, vote = np.unique(y[idx], return_counts=True)
+    return cls[np.argmax(vote)], d[idx[0]]
+
+
+def load_dataset():
+    X, y = [], []
+    if not os.path.isdir(DATASET_DIR):
+        return np.empty((0, 0), np.float32), np.array([])
+    for person in sorted(os.listdir(DATASET_DIR)):
+        pdir = os.path.join(DATASET_DIR, person)
+        if not os.path.isdir(pdir) or person.startswith("."):
+            continue
+        for fn in os.listdir(pdir):
+            if fn.lower().endswith(".jpg"):
+                data = np.fromfile(os.path.join(pdir, fn), dtype=np.uint8)
+                img = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    continue
+                X.append(img.flatten().astype(np.float32))
+                y.append(person)
+    return np.array(X, dtype=np.float32), np.array(y)
+
+
+def main():
+    X, y = load_dataset()
+    if len(X) == 0:
+        print("ไม่พบภาพใน dataset — รัน FaceTrain.py เพื่อเก็บภาพก่อน")
+        return
+    print(f"โหลดข้อมูล {X.shape[0]} ภาพ จาก {len(set(y))} คน: {sorted(set(y))}")
+
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        print("เปิดกล้องไม่ได้")
+        return
+
+    x1, y1, x2, y2 = BOX
+    print("วางหน้าในกรอบ | 'r' = โหลดข้อมูลใหม่ | 'q' = ออก")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        face = cv2.cvtColor(frame[y1:y2, x1:x2, :], cv2.COLOR_BGR2GRAY)
+        z = face.flatten().astype(np.float32)
+
+        if z.shape[0] == X.shape[1]:
+            name, dist = knn(X, y, z, K)
+            # ระยะเป็น RMS ต่อพิกเซลเพื่อให้ threshold ไม่ขึ้นกับขนาดภาพ
+            dist_px = dist / np.sqrt(z.shape[0])
+            known = dist_px <= UNKNOWN_THRESHOLD / 100.0
+            label = name if known else "Unknown"
+            color = (0, 255, 0) if known else (0, 0, 255)
+            text = f"{label} ({dist_px:.1f})" if SHOW_DISTANCE else label
+        else:
+            text, color = "Image size mismatch", (0, 0, 255)
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(frame, text, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+        cv2.imshow("Face Recognition", frame)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('r'):
+            X, y = load_dataset()
+            print(f"โหลดใหม่: {X.shape[0]} ภาพ จาก {len(set(y))} คน")
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
